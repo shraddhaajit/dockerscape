@@ -1,0 +1,15 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rcheck/
+src/*.o
+src/*.so
+src/*.dll
+vignettes/*.html
+vignettes/*.pdf
+inst/doc
+scratch/
+*.tar.gz
+*.rds
+docketscape.Rcheck/

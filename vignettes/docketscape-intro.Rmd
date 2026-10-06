@@ -1,0 +1,249 @@
+---
+title: "Introduction to docketscape: Legal Network and Congestion-Aware Delay Modeling"
+author: "Shraddha Ajit and DK Janani"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to docketscape: Legal Network and Congestion-Aware Delay Modeling}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  fig.height = 4,
+  eval = TRUE
+)
+```
+
+## 1. Motivation
+
+Empirical research on judicial court delay often struggles to separate two fundamentally different phenomena:
+
+1. **What a case is** — its statutory complexity and substantive nature, determined by the Acts and Sections invoked.
+2. **Where the case sits** — the institutional congestion and docket queue of the specific court at the time of filing.
+
+Traditional empirical analyses frequently aggregate diverse cases into broad categories (e.g. "Criminal" or "Civil"), overlooking intricate statutory differences. Furthermore, ongoing matters that remain pending at the observation cutoff are often improperly excluded or treated as missing values, introducing substantial survivor bias.
+
+`docketscape` addresses these challenges by:
+- Constructing statutory co-occurrence graphs and diffusing legal profiles across provisions.
+- Estimating censoring-aware expected resolution timelines from legally similar historical peers using weighted Kaplan-Meier curves.
+- Quantifying baseline court docket load at filing.
+- Modeling observational resolution hazards via Cox proportional hazards regression and decomposing fitted linear predictors.
+- Auditing and preventing future-information leakage during temporal holdout validation.
+
+> **Methodological Boundary:** `docketscape` is an observational modeling tool designed for case-level records structured similarly to the Development Data Lab (DDL) Indian lower-court database. It contains **no empirical DDL records** and uses simulated synthetic data throughout. It does **not** evaluate judicial efficiency, rank individual judges, establish causal mechanisms of delay, or determine whether an individual case was mishandled.
+
+---
+
+## 2. Input Data Structures
+
+The package works with two primary tabular inputs:
+
+1. **Case Records (`cases`)**: A table containing at least `case_id`, `filing_date`, and `decision_date` (with `NA` for pending cases), plus optional administrative identifiers such as `court`.
+2. **Legal Section Records (`sections`)**: A table linking each case to its cited statutory provisions, containing `case_id`, `act`, and `section`.
+
+All data structures in this vignette are generated synthetically for demonstration:
+
+Let us create a representative synthetic dataset:
+
+```{r setup-data}
+library(docketscape)
+
+set.seed(123)
+n_cases <- 30
+cases_raw <- data.frame(
+  case_id = 1:n_cases,
+  court = sample(c("Court_A", "Court_B"), n_cases, replace = TRUE),
+  filing_date = sample(seq.Date(as.Date("2012-01-01"), as.Date("2013-03-01"), by = "month"), n_cases, replace = TRUE),
+  duration_days = round(runif(n_cases, 60, 500)),
+  disposed = rbinom(n_cases, 1, 0.70),
+  stringsAsFactors = FALSE
+)
+
+# Pending cases have NA for decision_date
+cases_raw$decision_date <- as.Date(NA)
+cases_raw$decision_date[cases_raw$disposed == 1] <- 
+  cases_raw$filing_date[cases_raw$disposed == 1] + cases_raw$duration_days[cases_raw$disposed == 1]
+
+# Simulate legal sections
+set.seed(42)
+acts <- c("NI Act", "IPC", "CrPC")
+secs <- list("NI Act" = c("138", "141"), "IPC" = c("420", "406"), "CrPC" = c("154", "482"))
+
+sec_rows <- lapply(1:n_cases, function(i) {
+  n_s <- sample(1:2, 1)
+  act_sample <- sample(acts, n_s, replace = TRUE)
+  sec_sample <- sapply(act_sample, function(a) sample(secs[[a]], 1))
+  data.frame(case_id = i, act = unname(act_sample), section = unname(sec_sample), stringsAsFactors = FALSE)
+})
+sections_raw <- unique(do.call(rbind, sec_rows))
+```
+
+---
+
+## 3. Case Cleaning and Censoring Handling (`clean_cases`)
+
+`clean_cases()` standardises filing and decision dates, evaluates durations relative to an observation cutoff, and flags invalid records (such as decisions preceding filing or filings after cutoff) without silent deletion.
+
+```{r clean-cases}
+cleaned <- clean_cases(cases_raw, observation_end = "2014-12-31")
+head(cleaned[, c("case_id", "court", "duration", "event", "is_valid")])
+```
+
+- Disposed cases receive `event = 1` and duration equal to elapsed days to disposition.
+- Pending cases receive `event = 0` (right-censored) and duration equal to follow-up from filing to `observation_end`.
+
+---
+
+## 4. Legal Network Representation (`build_section_graph`)
+
+Sections cited within the same case reflect statutory co-occurrence. `build_section_graph()` constructs an undirected graph where nodes represent `Act::Section` pairs and edge weights count distinct cases citing both provisions:
+
+```{r section-graph}
+sec_graph <- build_section_graph(sections_raw)
+print(sec_graph)
+```
+
+---
+
+## 5. Profile Diffusion (`diffuse_profiles`)
+
+Raw citation vectors are sparse. A case citing Section 420 shares statutory affinities with Section 406 if those sections frequently co-occur in other matters.
+
+`diffuse_profiles()` applies one-step weighted profile diffusion over the row-stochastic transition matrix $P = D^{-1} A$:
+
+$$X_{\text{raw}} = \alpha X_{\text{init}} + (1 - \alpha) X_{\text{init}} P$$
+
+```{r diffuse-profiles}
+diffused <- diffuse_profiles(sections_raw, sec_graph, alpha = 0.7)
+print(diffused)
+```
+
+---
+
+## 6. Case Similarity Graph (`build_case_graph`)
+
+`build_case_graph()` computes pairwise cosine similarities across IDF-weighted diffused vectors and retains the top-$k$ nearest neighbours for each case, breaking ties deterministically by `case_id`:
+
+```{r case-graph}
+case_graph <- build_case_graph(diffused, k = 3, use_idf = TRUE)
+print(case_graph)
+```
+
+Mutual connections are symmetrized to form an undirected similarity graph.
+
+---
+
+## 7. Neighbourhood Survival Experience (`neighbourhood_survival`)
+
+For any focal case, an expected resolution timeline is estimated from its legally similar neighbours using weighted Kaplan-Meier estimation:
+
+$$\hat{S}(t) = \prod_{t_{(j)} \le t} \left(1 - \frac{\sum_{i \in \mathcal{D}_j} w_i}{\sum_{l \in \mathcal{R}_j} w_l}\right)$$
+
+where weights $w_i$ correspond to graph edge similarity weights. Censored neighbours remain in the risk set until their censoring time, avoiding bias against long-running matters.
+
+```{r neighbourhood-survival}
+km_focal <- neighbourhood_survival(case_graph, cleaned, case_id = 1)
+print(km_focal)
+```
+
+---
+
+## 8. Relative Lateness (`relative_lateness`)
+
+Relative lateness evaluates the focal case duration against the peer survival curve:
+
+$$\text{relative\_position} = 1 - S(T)$$
+
+where $T$ is the focal case duration.
+
+```{r relative-lateness}
+lateness <- relative_lateness(km_focal)
+print(lateness)
+```
+
+If the focal duration exceeds the maximum follow-up among neighbours, `docketscape` flags the metric as unestimable (`estimable = FALSE`) rather than extrapolating beyond observed data.
+
+---
+
+## 9. Court Docket Load (`court_load`)
+
+`court_load()` calculates monthly open docket volume across courts:
+
+```{r court-load}
+load_df <- court_load(cleaned, by = "month")
+head(load_df)
+```
+
+Each case's `load_at_filing` is aligned to the first day of its calendar month (`format(filing_date, "%Y-%m-01")`), reflecting initial queue volume.
+
+---
+
+## 10. Cox Delay Model (`fit_delay_model`)
+
+Case resolution hazard is modeled using semi-parametric Cox proportional hazards regression:
+
+$$\lambda(t \mid X) = \lambda_0(t) \exp\left(\beta_{\text{legal}} \cdot \text{legal\_score}_i + \beta_{\text{load}} \cdot \text{load\_at\_filing}_i\right)$$
+
+- `legal_score`: Mean similarity weight of incident edges in the case graph.
+- `load_at_filing`: Monthly court docket volume at case filing.
+
+```{r fit-model}
+fit <- fit_delay_model(cleaned, case_graph, load_df)
+print(fit)
+```
+
+A hazard ratio $\exp(\beta) > 1$ denotes a higher resolution rate (faster resolution). All coefficients reflect observational associations.
+
+---
+
+## 11. Delay Decomposition (`decompose_delay`)
+
+`decompose_delay()` partitions the fitted linear predictor into legal and docket load components:
+
+$$\eta_i = \beta_{\text{legal}} \cdot \text{legal\_score}_i + \beta_{\text{load}} \cdot \text{load\_at\_filing}_i$$
+
+```{r decompose}
+decomp <- decompose_delay(fit)
+if (fit$fit_success) {
+  head(decomp$case_decomposition, 3)
+}
+```
+
+Absolute contribution shares are calculated on component magnitudes. They describe partitions of the fitted linear predictor and are **not** causal attributions.
+
+---
+
+## 12. Leakage-Aware Temporal Validation (`validate_models`)
+
+In longitudinal court records, constructing a graph over pooled cross-sectional data creates future-neighbour leakage: cases filed in 2012 can be connected to cases filed in 2014.
+
+`docketscape` enforces a strict temporal information boundary:
+1. Cases are split chronologically by `(filing_date, case_id)`.
+2. The section graph, diffusion matrix, and IDF weights are computed **only on training cases**.
+3. Validation cases are projected into the training representation space via `project_validation_legal_score()`, acquiring **only training cases** as neighbours.
+4. Validation cases **never** form neighbours with each other.
+
+```{r validate-models}
+val <- validate_models(fit, sections = sections_raw, temporal_split = 0.7)
+print(val)
+```
+
+The package also provides auditing functions:
+- `check_future_neighbours()` to audit temporal ordering across graph edges.
+- `check_court_overlap()` to inspect court distributions across splits.
+- `check_near_duplicates()` to inspect same-court/date clusters.
+
+---
+
+## 13. Methodological Limitations
+
+1. **Observational:** Delay models describe statistical correlations, not causal mechanisms.
+2. **No Judge Rankings:** The package explicitly rejects and does not implement judge ranking, scoring, or efficiency metrics.
+3. **No Malfeasance Inference:** Slower resolution relative to neighbours reflects timeline disparity, not judicial misconduct.
+4. **Data Dependence:** Findings depend on the accuracy and completeness of underlying institutional records.
+5. **Censoring Assumptions:** Non-informative right censoring is assumed. Systematic causes of prolonged pendency may violate this assumption.

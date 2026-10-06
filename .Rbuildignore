@@ -1,0 +1,8 @@
+^\.Rproj\.user$
+^.*\.Rproj$
+^\.Rdata$
+^\.Rhistory$
+^docketscape.*\.tar\.gz$
+^docketscape\.Rcheck$
+^scratch$
+^tests/testthat/_snaps$
