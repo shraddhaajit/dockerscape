@@ -57,8 +57,12 @@ clean_cases <- function(cases,
   }
 
   # Extract or parse filing date column
-  if (is.character(filing) && length(filing) == 1 && filing %in% names(cases)) {
-    raw_filing <- cases[[filing]]
+  if (is.character(filing) && length(filing) == 1) {
+    if (filing %in% names(cases)) {
+      raw_filing <- cases[[filing]]
+    } else {
+      stop(sprintf("Column '%s' not found in `cases`.", filing), call. = FALSE)
+    }
   } else if (length(filing) == nrow(cases)) {
     raw_filing <- filing
   } else {
@@ -66,8 +70,12 @@ clean_cases <- function(cases,
   }
 
   # Extract or parse decision date column
-  if (is.character(decision) && length(decision) == 1 && decision %in% names(cases)) {
-    raw_decision <- cases[[decision]]
+  if (is.character(decision) && length(decision) == 1) {
+    if (decision %in% names(cases)) {
+      raw_decision <- cases[[decision]]
+    } else {
+      stop(sprintf("Column '%s' not found in `cases`.", decision), call. = FALSE)
+    }
   } else if (length(decision) == nrow(cases)) {
     raw_decision <- decision
   } else {
@@ -84,47 +92,31 @@ clean_cases <- function(cases,
   duration <- rep(NA_real_, n)
   event <- rep(NA_real_, n)
 
-  for (i in seq_len(n)) {
-    f_date <- filing_date[i]
-    d_date <- decision_date[i]
+  if (n > 0) {
+    missing_f <- is.na(filing_date)
+    after_obs <- !missing_f & (filing_date > obs_end)
+    dec_before_f <- !missing_f & !after_obs & !is.na(decision_date) & (decision_date < filing_date)
+    dec_after_obs <- !missing_f & !after_obs & !dec_before_f & !is.na(decision_date) & (decision_date > obs_end)
 
-    # Check 1: Missing filing date
-    if (is.na(f_date)) {
-      is_valid[i] <- FALSE
-      invalid_reason[i] <- "Missing filing date"
-      next
-    }
+    invalid_mask <- missing_f | after_obs | dec_before_f | dec_after_obs
+    is_valid <- !invalid_mask
 
-    # Check 2: Case filed after observation_end
-    if (f_date > obs_end) {
-      is_valid[i] <- FALSE
-      invalid_reason[i] <- "Filing date after observation_end"
-      next
-    }
+    invalid_reason[missing_f] <- "Missing filing date"
+    invalid_reason[after_obs] <- "Filing date after observation_end"
+    invalid_reason[dec_before_f] <- "Decision date before filing date"
+    invalid_reason[dec_after_obs] <- "Decision date after observation_end"
 
-    # Check 3: Decision date before filing date
-    if (!is.na(d_date) && d_date < f_date) {
-      is_valid[i] <- FALSE
-      invalid_reason[i] <- "Decision date before filing date"
-      next
-    }
+    valid_idx <- which(is_valid)
+    if (length(valid_idx) > 0) {
+      disp_mask <- !is.na(decision_date[valid_idx])
+      disp_idx <- valid_idx[disp_mask]
+      pend_idx <- valid_idx[!disp_mask]
 
-    # Check 4: Decision date after observation_end
-    if (!is.na(d_date) && d_date > obs_end) {
-      is_valid[i] <- FALSE
-      invalid_reason[i] <- "Decision date after observation_end"
-      next
-    }
+      event[disp_idx] <- 1
+      duration[disp_idx] <- as.numeric(decision_date[disp_idx] - filing_date[disp_idx])
 
-    # If valid, calculate event and duration
-    if (!is.na(d_date)) {
-      # Disposed case
-      event[i] <- 1
-      duration[i] <- as.numeric(d_date - f_date)
-    } else {
-      # Pending case (right-censored at observation_end)
-      event[i] <- 0
-      duration[i] <- as.numeric(obs_end - f_date)
+      event[pend_idx] <- 0
+      duration[pend_idx] <- as.numeric(obs_end - filing_date[pend_idx])
     }
   }
 

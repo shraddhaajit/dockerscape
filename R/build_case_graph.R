@@ -61,6 +61,10 @@ build_case_graph <- function(profiles,
     stop("Length of `case_ids` does not match the number of rows in `profiles` matrix.", call. = FALSE)
   }
 
+  if (any(is.na(case_ids)) || any(nchar(trimws(as.character(case_ids))) == 0)) {
+    stop("Missing or empty case IDs detected in `profiles`.", call. = FALSE)
+  }
+
   if (any(duplicated(case_ids))) {
     stop("Duplicate case IDs detected in `profiles`.", call. = FALSE)
   }
@@ -76,7 +80,9 @@ build_case_graph <- function(profiles,
       igraph::V(g)$case_id <- case_ids
     } else {
       g <- igraph::set_vertex_attr(g, "case_id", value = character(0))
+      g <- igraph::set_vertex_attr(g, "name", value = character(0))
     }
+    g <- igraph::set_edge_attr(g, "weight", value = numeric(0))
     return(g)
   }
 
@@ -94,53 +100,64 @@ build_case_graph <- function(profiles,
     W <- mat
   }
 
-  # Step 2: Cosine Similarity
+  # Step 2: Cosine Similarity with Chunking to maintain O(chunk_size * N) memory
   row_l2 <- sqrt(Matrix::rowSums(W^2))
   inv_l2 <- ifelse(row_l2 > 0, 1 / row_l2, 0)
   W_norm <- Matrix::Diagonal(x = inv_l2) %*% W
 
-  S <- as.matrix(W_norm %*% Matrix::t(W_norm))
-  dimnames(S) <- list(case_ids, case_ids)
+  W_norm_t <- Matrix::t(W_norm)
 
-  # Zero out diagonal (no self-loops)
-  diag(S) <- 0
+  chunk_size <- 1000L
+  n_chunks <- ceiling(n_cases / chunk_size)
 
-  # Bound values to [0, 1]
-  S[S < 0] <- 0
-  S[S > 1] <- 1
+  case_id_ranks <- rank(case_ids, ties.method = "min")
 
-  # Step 3: k-NN selection per case
-  edge_dict <- list()
+  max_possible_edges <- n_cases * k
+  edge_u <- integer(max_possible_edges)
+  edge_v <- integer(max_possible_edges)
+  edge_w <- numeric(max_possible_edges)
+  ptr <- 0L
 
-  for (i in seq_len(n_cases)) {
-    sims <- S[i, ]
-    cand_idx <- which(sims > 0)
-    if (length(cand_idx) == 0) next
+  for (ch in seq_len(n_chunks)) {
+    start_idx <- (ch - 1L) * chunk_size + 1L
+    end_idx <- min(ch * chunk_size, n_cases)
+    chunk_rows <- start_idx:end_idx
 
-    cand_sims <- sims[cand_idx]
-    cand_ids <- case_ids[cand_idx]
+    S_block <- as.matrix(W_norm[chunk_rows, , drop = FALSE] %*% W_norm_t)
+    S_block[S_block < 0] <- 0
+    S_block[S_block > 1] <- 1
 
-    # Sort by similarity descending, then by case_id ascending for deterministic tie breaking
-    ord <- order(-cand_sims, cand_ids)
-    sorted_idx <- cand_idx[ord]
+    for (r in seq_along(chunk_rows)) {
+      i <- chunk_rows[r]
+      S_block[r, i] <- 0 # Zero out diagonal (no self-loops)
 
-    selected_idx <- sorted_idx[seq_len(min(k, length(sorted_idx)))]
+      sims <- S_block[r, ]
+      cand_idx <- which(sims > 0)
+      if (length(cand_idx) == 0) next
 
-    for (j in selected_idx) {
-      u <- min(i, j)
-      v <- max(i, j)
-      pair_key <- paste0(u, "_", v)
-      edge_dict[[pair_key]] <- list(from = case_ids[u], to = case_ids[v], weight = S[u, v])
+      cand_sims <- sims[cand_idx]
+      cand_ranks <- case_id_ranks[cand_idx]
+
+      ord <- order(-cand_sims, cand_ranks)
+      selected_idx <- cand_idx[ord[seq_len(min(k, length(ord)))]]
+      n_sel <- length(selected_idx)
+
+      if (n_sel > 0) {
+        slot_idx <- (ptr + 1L):(ptr + n_sel)
+        edge_u[slot_idx] <- pmin(i, selected_idx)
+        edge_v[slot_idx] <- pmax(i, selected_idx)
+        edge_w[slot_idx] <- sims[selected_idx]
+        ptr <- ptr + n_sel
+      }
     }
   }
 
-  nodes_df <- data.frame(
-    name = case_ids,
-    case_id = case_ids,
-    stringsAsFactors = FALSE
-  )
-
-  if (length(edge_dict) == 0) {
+  if (ptr == 0L) {
+    nodes_df <- data.frame(
+      name = case_ids,
+      case_id = case_ids,
+      stringsAsFactors = FALSE
+    )
     g <- igraph::graph_from_data_frame(
       d = data.frame(from = character(0), to = character(0), weight = numeric(0)),
       vertices = nodes_df,
@@ -149,9 +166,34 @@ build_case_graph <- function(profiles,
     return(g)
   }
 
-  edges_df <- do.call(rbind, lapply(edge_dict, function(e) {
-    data.frame(from = e$from, to = e$to, weight = e$weight, stringsAsFactors = FALSE)
-  }))
+  edge_u <- edge_u[seq_len(ptr)]
+  edge_v <- edge_v[seq_len(ptr)]
+  edge_w <- edge_w[seq_len(ptr)]
+
+  nodes_df <- data.frame(
+    name = case_ids,
+    case_id = case_ids,
+    stringsAsFactors = FALSE
+  )
+
+  if (length(edge_u) == 0) {
+    g <- igraph::graph_from_data_frame(
+      d = data.frame(from = character(0), to = character(0), weight = numeric(0)),
+      vertices = nodes_df,
+      directed = FALSE
+    )
+    return(g)
+  }
+
+  pair_keys <- paste0(edge_u, "_", edge_v)
+  dup_mask <- duplicated(pair_keys)
+
+  edges_df <- data.frame(
+    from = case_ids[edge_u[!dup_mask]],
+    to = case_ids[edge_v[!dup_mask]],
+    weight = edge_w[!dup_mask],
+    stringsAsFactors = FALSE
+  )
 
   edges_df <- edges_df[order(edges_df$from, edges_df$to), , drop = FALSE]
   rownames(edges_df) <- NULL

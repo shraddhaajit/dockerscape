@@ -169,8 +169,24 @@ diffuse_profiles <- function(sections,
 
   # Construct Transition Matrix P (m_sections x m_sections)
   if (igraph::vcount(section_graph) > 0) {
-    A_graph <- igraph::as_adjacency_matrix(section_graph, attr = "weight", sparse = TRUE)
-    A_graph <- A_graph[graph_sec_ids, graph_sec_ids, drop = FALSE]
+    # Simplify graph to remove any duplicate edges or self-loops in input
+    sg_clean <- igraph::simplify(
+      section_graph,
+      remove.multiple = TRUE,
+      remove.loops = TRUE,
+      edge.attr.comb = "sum"
+    )
+    if ("weight" %in% igraph::edge_attr_names(sg_clean)) {
+      w_vals <- igraph::E(sg_clean)$weight
+      w_vals[is.na(w_vals) | w_vals < 0] <- 0
+      igraph::E(sg_clean)$weight <- w_vals
+    }
+    A_graph <- igraph::as_adjacency_matrix(sg_clean, attr = "weight", sparse = TRUE)
+    if (!is.null(graph_sec_ids) && length(graph_sec_ids) > 0) {
+      common_ids <- intersect(graph_sec_ids, rownames(A_graph))
+      A_graph <- A_graph[common_ids, common_ids, drop = FALSE]
+      graph_sec_ids <- common_ids
+    }
   } else {
     A_graph <- Matrix::Matrix(0, nrow = 0, ncol = 0, sparse = TRUE)
   }
@@ -185,6 +201,11 @@ diffuse_profiles <- function(sections,
   } else {
     A_full <- A_graph
   }
+
+  # Ensure no self-loops and non-negative weights in adjacency matrix
+  Matrix::diag(A_full) <- 0
+  A_full[A_full < 0] <- 0
+  A_full[is.na(A_full)] <- 0
 
   deg <- Matrix::rowSums(A_full)
   inv_deg <- ifelse(deg > 0, 1 / deg, 0)

@@ -27,3 +27,12 @@ export(validate_models)
 import(Matrix)
 import(igraph)
 import(survival)
+importFrom(stats,
+  aggregate,
+  coef,
+  median,
+  predict,
+  quantile,
+  sd,
+  setNames
+)

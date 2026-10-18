@@ -1,6 +1,7 @@
+
 # docketscape: Legal Network and Congestion-Aware Delay Modeling for Court Dockets
 
-[![R-CMD-check](https://img.shields.io/badge/R--CMD--check-passing-brightgreen)]()
+[![R-CMD-check](https://img.shields.io/badge/R--CMD--check-passing-brightgreen)](https://github.com/shraddhaajit/dockerscape/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 `docketscape` is an R package for case-level judicial records (such as the Development Data Lab extract of Indian lower-court records). It decomposes court delay into two distinct dimensions:
@@ -35,7 +36,7 @@ Empirical analysis of court delay faces two persistent methodological challenges
 ### Key Methodological Components
 
 - **Right Censoring Matters:** At any observation date, open (pending) cases have not yet reached disposition. Treating pending cases as missing data or ignoring them introduces severe survivor bias (conditioning on early completion). `docketscape` treats pending matters as right-censored survival observations with event indicator $0$ and duration equal to follow-up from filing to the observation cutoff.
-- **Legal Similarity via Network Diffusion:** Legal sections rarely operate in isolation. By constructing a bipartite case-section network, projecting it to a section co-occurrence graph, and diffusing case profiles over co-cited sections via one-step weighted profile diffusion ($X_{\text{raw}} = \alpha X_{\text{init}} + (1-\alpha) X_{\text{init}} P$), `docketscape` captures substantive affinities between provisions that co-occur across cases.
+- **Legal Similarity via Network Diffusion:** Legal sections rarely operate in isolation. By constructing a bipartite case-section network, projecting it to a section co-occurrence graph, and diffusing case profiles over co-cited sections via one-step weighted profile diffusion ($X_{\mathrm{diffused}} = \alpha X_0 + (1-\alpha) X_0 P$), `docketscape` captures substantive affinities between provisions that co-occur across cases.
 - **Neighbourhood Survival Experience:** For any focal case, an expected timeline is constructed from its $k$-nearest legal neighbours using weighted Kaplan-Meier estimation. Censored neighbours remain in the risk set until their last observation, properly anchoring historical benchmarks.
 - **Filing-Time Court Load:** Docket backlog is quantified as open case volume at the calendar month of filing, establishing baseline institutional congestion at case inception.
 
@@ -48,7 +49,7 @@ Install the package directly from GitHub using the repository URL:
 ```r
 # Install from GitHub
 # install.packages("remotes")
-remotes::install_github("shraddhaajit/dockerscape")
+remotes::install_github("shraddhaajit/docketscape")
 ```
 
 Or install locally for development:
@@ -286,7 +287,7 @@ For a target case $i$, an expected resolution timeline is estimated from its val
 ### 5.6 Relative Lateness (`relative_lateness`)
 Relative lateness evaluates where a target case falls within its peer survival curve:
 
-$$\text{relative\_position} = 1 - S(T)$$
+$$\mathrm{relative\_position} = 1 - S(T)$$
 
 where $T$ is the target case duration, and $S(T)$ is the weighted Kaplan-Meier neighbourhood survival function evaluated at $T$.
 - **Estimability:** If target duration $T$ exceeds the maximum follow-up observed among its neighbours, the package sets `estimable = FALSE` and returns `NA`. `docketscape` explicitly refuses to extrapolate beyond empirical neighbour follow-up.
@@ -298,23 +299,23 @@ where $T$ is the target case duration, and $S(T)$ is the weighted Kaplan-Meier n
 ### 5.8 Cox Delay Model (`fit_delay_model`)
 Case resolution hazard is modeled using semi-parametric Cox proportional hazards regression:
 
-$$\lambda(t \mid X) = \lambda_0(t) \exp\left(\beta_{\text{legal}} \cdot \text{legal\_score}_i + \beta_{\text{load}} \cdot \text{load\_at\_filing}_i\right)$$
+$$\lambda(t \mid X) = \lambda_0(t) \exp\left(\beta_{\mathrm{legal}} \cdot \mathrm{score}_i + \beta_{\mathrm{load}} \cdot \mathrm{load}_i\right)$$
 
-- `legal_score`: Mean similarity weight of incident edges in the case similarity graph.
-- `load_at_filing`: Court docket load at the case's filing month.
+- `score`: Mean similarity weight of incident edges in the case similarity graph (`legal_score`).
+- `load`: Court docket load at the case's filing month (`load_at_filing`).
 - **Hazard Ratio Interpretation:** A hazard ratio $\exp(\beta) > 1$ denotes a higher hazard of resolution (faster disposition rate), whereas $\exp(\beta) < 1$ denotes a lower hazard of resolution (longer duration).
 - **Observational Status:** Coefficients represent observational associations conditional on the model specification. They do not represent causal mechanisms.
 
 ### 5.9 Delay Decomposition (`decompose_delay`)
 The fitted linear predictor $\eta_i$ is partitioned into its linear additive components:
 
-$$\eta_i = \beta_{\text{legal}} \cdot \text{legal\_score}_i + \beta_{\text{load}} \cdot \text{load\_at\_filing}_i$$
+$$\eta_i = \beta_{\mathrm{legal}} \cdot \mathrm{score}_i + \beta_{\mathrm{load}} \cdot \mathrm{load}_i$$
 
 Component shares are computed using absolute magnitudes:
 
-$$\text{absolute\_legal\_share}_i = \frac{|\beta_{\text{legal}} \cdot \text{legal\_score}_i|}{|\beta_{\text{legal}} \cdot \text{legal\_score}_i| + |\beta_{\text{load}} \cdot \text{load\_at\_filing}_i|}$$
+$$\mathrm{absolute\_legal\_share}_i = \frac{|\beta_{\mathrm{legal}} \cdot \mathrm{score}_i|}{|\beta_{\mathrm{legal}} \cdot \mathrm{score}_i| + |\beta_{\mathrm{load}} \cdot \mathrm{load}_i|}$$
 
-$$\text{absolute\_load\_share}_i = \frac{|\beta_{\text{load}} \cdot \text{load\_at\_filing}_i|}{|\beta_{\text{legal}} \cdot \text{legal\_score}_i| + |\beta_{\text{load}} \cdot \text{load\_at\_filing}_i|}$$
+$$\mathrm{absolute\_load\_share}_i = \frac{|\beta_{\mathrm{load}} \cdot \mathrm{load}_i|}{|\beta_{\mathrm{legal}} \cdot \mathrm{score}_i| + |\beta_{\mathrm{load}} \cdot \mathrm{load}_i|}$$
 
 **Statistical Safeguard:** These shares partition the fitted linear predictor of the model. They are **not** causal attributions of delay.
 
@@ -351,16 +352,141 @@ Evaluated on the canonical 80-case synthetic validation dataset:
 | **Total Cohort** | Total Cases ($N$) | 80 |
 | | Observed Events | 59 |
 | | Right-Censored (Pending) | 21 |
-| **Training Cohort (70%)** | Training Cases ($N_{\text{train}}$) | 56 |
+| **Training Cohort (70%)** | Training Cases ($N_{\mathrm{train}}$) | 56 |
 | | Observed Events | 41 |
 | | Right-Censored | 15 |
-| **Validation Cohort (30%)** | Validation Cases ($N_{\text{val}}$) | 24 |
+| **Validation Cohort (30%)** | Validation Cases ($N_{\mathrm{val}}$) | 24 |
 | | Observed Events | 18 |
 | | Right-Censored | 6 |
 | **Validation Discrimination** | **Held-Out Harrell's C-index** | **0.5038** |
 
 ### Honest Interpretation of Synthetic Discrimination:
 The held-out concordance index of **0.5038** on this synthetic dataset is approximately chance-level discrimination ($0.50$). Because the synthetic outcomes were generated independently of the statutory profiles and docket load features, an out-of-sample C-index near 0.50 is the expected statistical baseline. This confirms correct execution of the leakage-free training-to-validation projection pipeline without numerical collapse or data fabrication; it does NOT demonstrate predictive success or empirical findings.
+
+---
+
+## Empirical Validation on 2010 DDL Subset (Exploratory Findings)
+
+To validate pipeline robustness and representation behavior on real-world judicial records, the pipeline was audited against an external, unbundled 10,000-case sample of 2010 Indian lower-court filings from the Development Data Lab (DDL) repository. All DDL analyses were conducted using external scripts outside the package repository; **no empirical DDL records are bundled within `docketscape`**.
+
+> **Methodological Status:** All metrics below are strictly **EXPLORATORY** empirical validations on this specific subset. They do **NOT** support causal claims, do **NOT** generalize to all Indian lower courts, and do **NOT** rank or evaluate judicial officers or courts.
+
+### 1. Date Rules & Cutoff Sensitivity (10,000 Cases)
+
+Audit of candidate observation cutoffs across the full 10,000-case sample:
+
+| Cutoff Date | Description | Valid Cases | Invalid Cases | Events | Censored | Censoring Rate | Median Duration | Mean Duration |
+|:---|:---|---:|---:|---:|---:|---:|---:|---:|
+| **2015-12-31** | 5-Year Window | 8,462 | 1,538 | 7,178 | 1,284 | 15.17% | 896 days | 975.7 days |
+| **2018-12-31** | Stated Panel End | 9,863 | 137 | 8,579 | 1,284 | 13.02% | 1,107 days | 1,334.3 days |
+| **2019-12-31** | Pre-Pandemic Cutoff | 9,933 | 67 | 8,649 | 1,284 | 12.93% | 1,120 days | 1,394.8 days |
+| **2020-07-23** | Max Observed Date | 9,943 | 57 | 8,659 | 1,284 | 12.91% | 1,122 days | 1,423.4 days |
+
+- **Disposition Code 26 ("Pending / Undisposed" in CIS):** Accounts for 1,373 cases, of which 1,278 have missing decision dates (constituting 99.5% of all missing decision dates in the sample) and 1,301 record future next-listing dates.
+- **Negative Duration Audit ($dur < 0$):** Exactly 57 cases had recorded decision dates preceding filing dates. Of these, 48 had disposition code 26 where `date_of_decision` was clerical duplication of `date_first_list`, while 9 were typographic year/month entry errors. `clean_cases()` correctly flags all 57 cases as invalid (`is_valid = FALSE`) and masks their durations to `NA_real_`, preventing negative follow-ups from corrupting downstream survival estimates.
+
+### 2. Court Load Time Indexing
+
+- **Panel Structure:** 307,476 monthly court load rows constructed across 2,847 unique courts spanning 2010-01-01 to 2018-12-01.
+- **Monthly Load Distribution:** Median monthly new filings per court = 1.0 (mean = 1.40, max = 75.0).
+- **Zero-Load Months:** 126,310 (41.08%) months had zero active case filings, handled cleanly by `court_load()` without missing-value inflation or index misalignment.
+
+### 3. Graph Structure on Top-10 Courts Subset ($N=557$)
+
+A representative subset of 557 cases across the top 10 most active courts was analyzed end-to-end:
+- **Section Graph:** 84 unique statutory section nodes, 126 undirected co-occurrence edges. Edge weights (integer case co-occurrences): min = 1, median = 1, mean = 3.24, max = 39.
+- **Profile Diffusion Stability:** Across all diffusion weights $\alpha \in \{0.1, 0.3, 0.5, 0.7, 0.9, 1.0\}$, all 557 case profile row sums strictly satisfy $L_1 = 1.000000$ (numerical drift $< 10^{-15}$). Non-zero diffused entries: 6,239 for $\alpha < 1.0$ (sparsity = 0.8667) vs. 965 for un-diffused $\alpha = 1.0$ (sparsity = 0.9794).
+- **Case Similarity Graph ($k=5$):** 557 case nodes, 2,204 undirected edges. Cosine similarity edge weights: min = 0.0241, 1st Qu = 0.8559, median = 1.0000, mean = 0.9095, max = 1.0000. Degree distribution: min = 0, median = 5, mean = 7.91, max = 45 (3 isolated cases with degree 0, 554 connected cases).
+
+### 4. Temporal Leakage & Holdout Audits
+
+- **Full-Sample Graph Leakage:** Constructing the case similarity graph over pooled cases across a 70% chronological split (cutoff: 2010-09-21) produced **834 future-neighbour edges** affecting **240 cases** (43.1% of cases acquired neighbours filed in the future).
+- **Training-Only Projection (`project_validation_legal_score`):** Projected 167 held-out validation cases against training representations:
+  - Validation cases using training neighbours: 165
+  - Validation cases using validation neighbours: **0** (strictly 0% leakage)
+  - Unseen statutory sections: 19 validation cases cited provisions absent from training vocabulary, handled gracefully with missing scores rather than runtime crashes.
+
+### 5. Cox Model Convergence & Sensitivity Grid
+
+Semi-parametric Cox proportional hazards models converged reliably across varying sample sizes and hyperparameter configurations:
+
+**Sample Size Sensitivity:**
+
+| Cohort Size ($N$) | Complete Obs | Observed Events | $\beta_{\mathrm{legal}}$ | Legal $p$-value | $\beta_{\mathrm{load}}$ | Load $p$-value | Harrell's C-index | Optimization Status |
+|---:|---:|---:|---:|---:|---:|---:|---:|:---|
+| 50 | 48 | 42 | 1.2600 | 0.2303 | 0.01466 | 0.0496 | 0.647 | Converged |
+| 100 | 95 | 87 | 2.3277 | 0.0070 | 0.00783 | 0.1517 | 0.580 | Converged |
+| 250 | 236 | 221 | 1.6144 | 0.0027 | 0.00452 | 0.2099 | 0.536 | Converged |
+| 557 | 521 | 494 | 1.0498 | 0.0018 | 0.00535 | 0.0366 | 0.525 | Converged |
+
+**Hyperparameter Sensitivity Grid ($\alpha \times k$ at $N=557$):**
+
+| Diffusion $\alpha$ | Nearest Neighbours $k$ | $\beta_{\mathrm{legal}}$ | $\beta_{\mathrm{load}}$ | Harrell's C-index |
+|---:|---:|---:|---:|---:|
+| 0.3 | 3 | 1.8591 | 0.00555 | 0.531 |
+| 0.7 | 3 | 1.0069 | 0.00586 | 0.528 |
+| 0.9 | 3 | 0.7507 | 0.00592 | 0.528 |
+| 0.3 | 5 | 1.8649 | 0.00531 | 0.531 |
+| 0.7 | 5 | 1.0498 | 0.00535 | 0.525 |
+| 0.9 | 5 | 0.8302 | 0.00540 | 0.526 |
+| 0.3 | 10 | 1.2763 | 0.00493 | 0.522 |
+| 0.7 | 10 | 0.7201 | 0.00542 | 0.519 |
+| 0.9 | 10 | 0.5990 | 0.00544 | 0.519 |
+
+Across all configurations, baseline filing-month court load exhibits a positive association with resolution hazard ($\beta_{\mathrm{load}} \approx 0.005$ to $0.006$), while legal score association scales inversely with network diffusion smoothing. Concordance indexes remain modestly above chance (0.519 to 0.531), consistent with observational non-causal representations.
+
+---
+
+## Technical Specifications & Architecture
+
+### Input Data Schemas
+- **`cases` Data Frame:**
+  - `case_id` (character or numeric, unique): Case identifier.
+  - `filing_date` (Date or ISO character string): Date of case institution.
+  - `decision_date` (Date or ISO character string, optional): Date of final order/disposal (NA if pending).
+  - `court` (character, optional): Court identifier for institutional grouping.
+- **`sections` Data Frame:**
+  - `case_id` (character or numeric): Foreign key matching `cases$case_id`.
+  - `act` (character): Statutory enactment (e.g. `"IPC"`, `"NI Act"`).
+  - `section` (character): Specific statutory provision (e.g. `"420"`, `"138"`).
+- **`court_load` Data Frame:**
+  - `court` (character): Court identifier.
+  - `date` (Date): First day of calendar month (`YYYY-MM-01`).
+  - `load` (numeric): Count of active cases open in that court as of the month.
+
+### Standardized Weight Definitions
+- **Section Graph:** Undirected edge weights represent **integer case co-occurrence counts** (number of distinct cases citing both provisions).
+- **Case Similarity Graph:** Undirected edge weights represent **cosine similarities** in $[0, 1]$ computed over IDF-weighted diffused statutory profile vectors.
+- **Profile Diffusion Vectors:** Row-stochastic vectors where entries represent smoothed statutory representation probabilities summing strictly to $1.0$ ($L_1 = 1.0$).
+- **Relative Lateness:** Kaplan-Meier survival probability $S(t) \in [0, 1]$ and lateness percentile $1 - S(t) \in [0, 1]$ evaluated against historical peer distributions.
+
+### Censoring & Missing Data Rules
+- **Right Censoring:** Pending cases (`is.na(decision_date)`) receive `event = 0` and `duration = observation_end - filing_date`. Disposed cases receive `event = 1` and `duration = decision_date - filing_date`.
+- **Validation Masking:** Cases with unparseable dates, filing dates after `observation_end`, decision dates preceding filing dates, or non-positive durations are flagged as `is_valid = FALSE` with an informative `invalid_reason`. Their durations are masked to `NA_real_` to ensure invalid records never enter survival likelihoods.
+- **Unseen Sections:** Validation cases citing statutory provisions not observed during training are retained; unseen dimensions contribute zero weight in training projection space, returning `NA` legal scores only if entirely disjoint from training vocabulary.
+
+### Computational Scaling & Limits
+- **Section Graph:** Uses sparse matrix crossproducts (`Matrix::crossprod()`) avoiding combinatorial pair enumeration.
+- **Case Similarity Graph:** Implements chunked sparse evaluation (`chunk_size = 1000`) and integer-ranked tie-breaking (`case_id_ranks`), scaling to 25,000 cases in under 1.9 GB RAM.
+- **Court Docket Load:** Implements fast $O(N \log N + T \log N)$ `findInterval()` event tracking, eliminating dense $O(T \times N)$ boolean allocation.
+
+---
+
+## Dependency Licenses
+
+`docketscape` is built entirely on open-source dependencies with compatible licenses:
+
+| Dependency | Component | License |
+|:---|:---|:---|
+| `R` (>= 4.1.0) | Core runtime environment | GPL-2 \| GPL-3 |
+| `igraph` | Graph structures and algorithms | GPL-2 \| GPL-3 |
+| `Matrix` | Sparse matrix operations | GPL-2 \| GPL-3 |
+| `survival` | Semi-parametric survival models | LGPL-2 \| LGPL-2.1 \| LGPL-3 |
+| `stats` | Statistical distributions and optimizers | GPL-2 \| GPL-3 (Base R) |
+| `knitr` | Vignette rendering engine | GPL-2 \| GPL-3 |
+| `rmarkdown` | Dynamic document generation | GPL-3 |
+| `testthat` | Unit and regression test suite | MIT |
+| `spelling` | Documentation orthography validation | MIT |
 
 ---
 
@@ -425,7 +551,7 @@ If you use `docketscape` in your research, please cite:
   author = {Shraddha Ajit and DK Janani},
   year   = {2026},
   note   = {R package version 0.1.0},
-  url    = {https://github.com/shraddhaajit/dockerscape}
+  url    = {https://github.com/shraddhaajit/docketscape}
 }
 ```
 

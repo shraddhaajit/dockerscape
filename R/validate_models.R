@@ -490,35 +490,29 @@ validate_models <- function(fit,
   n_future_edges <- 0L
   max_future_date <- as.Date(NA)
 
-  if (inherits(cg, "igraph") && igraph::vcount(cg) > 0) {
-    v_names <- igraph::V(cg)$name
+  if (inherits(cg, "igraph") && igraph::vcount(cg) > 0 && igraph::ecount(cg) > 0) {
     train_ids <- as.character(train_df$case_id)
     all_filing_dates <- stats::setNames(as.Date(v_sorted$filing_date), as.character(v_sorted$case_id))
 
-    future_dates_collected <- as.Date(character(0))
-    train_cases_flagged <- character(0)
+    el <- igraph::as_data_frame(cg, what = "edges")
+    if (nrow(el) > 0) {
+      d_from <- all_filing_dates[as.character(el$from)]
+      d_to <- all_filing_dates[as.character(el$to)]
 
-    for (cid in train_ids) {
-      if (cid %in% v_names) {
-        inc_edges <- igraph::incident(cg, v = cid, mode = "all")
-        if (length(inc_edges) > 0) {
-          adj_verts <- igraph::adjacent_vertices(cg, v = cid)[[1]]
-          adj_ids <- igraph::V(cg)$name[adj_verts]
-          adj_dates <- all_filing_dates[adj_ids]
-          future_mask <- !is.na(adj_dates) & (adj_dates > cutoff_date)
-          if (any(future_mask)) {
-            train_cases_flagged <- c(train_cases_flagged, cid)
-            future_dates_collected <- c(future_dates_collected, adj_dates[future_mask])
-          }
-        }
+      # Direction 1: from is train (<= cutoff_date) and to is future (> cutoff_date)
+      u_tr_v_fut <- !is.na(d_from) & !is.na(d_to) & (d_from <= cutoff_date) & (d_to > cutoff_date)
+      # Direction 2: to is train (<= cutoff_date) and from is future (> cutoff_date)
+      v_tr_u_fut <- !is.na(d_from) & !is.na(d_to) & (d_to <= cutoff_date) & (d_from > cutoff_date)
+
+      flagged_cases <- c(el$from[u_tr_v_fut], el$to[v_tr_u_fut])
+      future_dates_collected <- c(d_to[u_tr_v_fut], d_from[v_tr_u_fut])
+
+      n_train_with_future <- length(unique(flagged_cases))
+      n_future_edges <- length(future_dates_collected)
+      if (n_future_edges > 0) {
+        future_leakage <- TRUE
+        max_future_date <- max(future_dates_collected)
       }
-    }
-
-    n_train_with_future <- length(unique(train_cases_flagged))
-    n_future_edges <- length(future_dates_collected)
-    if (n_future_edges > 0) {
-      future_leakage <- TRUE
-      max_future_date <- max(future_dates_collected)
     }
   }
 
@@ -612,14 +606,14 @@ validate_models <- function(fit,
         tr_legal_scores <- rep(NA_real_, nrow(train_df))
         if (igraph::vcount(tr_case_graph) > 0) {
           tr_v_names <- igraph::V(tr_case_graph)$name
-          for (i in seq_len(nrow(train_df))) {
-            cid <- tr_cids[i]
-            if (cid %in% tr_v_names) {
-              inc_e <- igraph::incident(tr_case_graph, v = cid, mode = "all")
-              if (length(inc_e) > 0) {
-                tr_legal_scores[i] <- mean(igraph::E(tr_case_graph)$weight[inc_e], na.rm = TRUE)
-              }
-            }
+          if (!is.null(tr_v_names)) {
+            tr_w <- if ("weight" %in% igraph::edge_attr_names(tr_case_graph)) igraph::E(tr_case_graph)$weight else NULL
+            tr_deg <- igraph::degree(tr_case_graph, mode = "all")
+            tr_str <- if (!is.null(tr_w)) igraph::strength(tr_case_graph, mode = "all", weights = tr_w) else as.numeric(tr_deg)
+            tr_v_scores <- ifelse(tr_deg > 0, tr_str / tr_deg, NA_real_)
+            tr_map <- match(tr_cids, tr_v_names)
+            tr_has <- !is.na(tr_map)
+            tr_legal_scores[tr_has] <- tr_v_scores[tr_map[tr_has]]
           }
         }
 
