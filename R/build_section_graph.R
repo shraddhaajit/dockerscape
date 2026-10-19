@@ -59,9 +59,11 @@ build_section_graph <- function(sections,
 
   if (!any(valid_mask)) {
     g <- igraph::make_empty_graph(n = 0, directed = FALSE)
+    g <- igraph::set_vertex_attr(g, "name", value = character(0))
     g <- igraph::set_vertex_attr(g, "act", value = character(0))
     g <- igraph::set_vertex_attr(g, "section", value = character(0))
     g <- igraph::set_vertex_attr(g, "identifier", value = character(0))
+    g <- igraph::set_edge_attr(g, "weight", value = numeric(0))
     return(g)
   }
 
@@ -82,26 +84,11 @@ build_section_graph <- function(sections,
   # Deduplicate per case to prevent artificial inflation
   unique_case_sections <- unique(clean_df[, c("case_id", "identifier")])
 
-  # Compute co-occurrences across cases
-  case_list <- split(unique_case_sections$identifier, unique_case_sections$case_id)
+  unique_case_ids <- unique(unique_case_sections$case_id)
+  node_identifiers <- nodes_df$identifier
+  m_nodes <- length(node_identifiers)
 
-  edge_pairs <- list()
-  idx <- 1
-
-  for (c_ids in case_list) {
-    u_sec <- unique(c_ids)
-    n_sec <- length(u_sec)
-    if (n_sec >= 2) {
-      pairs <- utils::combn(u_sec, 2, simplify = FALSE)
-      for (p in pairs) {
-        p_sorted <- sort(p)
-        edge_pairs[[idx]] <- p_sorted
-        idx <- idx + 1
-      }
-    }
-  }
-
-  if (length(edge_pairs) == 0) {
+  if (m_nodes < 2 || nrow(unique_case_sections) < 2) {
     g <- igraph::graph_from_data_frame(
       d = data.frame(from = character(0), to = character(0), weight = numeric(0)),
       vertices = nodes_df,
@@ -111,19 +98,46 @@ build_section_graph <- function(sections,
     return(g)
   }
 
-  edges_raw <- do.call(rbind, lapply(edge_pairs, function(x) data.frame(from = x[1], to = x[2], stringsAsFactors = FALSE)))
+  case_idx <- match(unique_case_sections$case_id, unique_case_ids)
+  sec_idx <- match(unique_case_sections$identifier, node_identifiers)
 
-  edge_counts <- stats::aggregate(
-    list(weight = rep(1, nrow(edges_raw))),
-    by = list(from = edges_raw$from, to = edges_raw$to),
-    FUN = sum
+  C_mat <- Matrix::sparseMatrix(
+    i = case_idx,
+    j = sec_idx,
+    x = 1,
+    dims = c(length(unique_case_ids), m_nodes)
   )
 
-  edge_counts <- edge_counts[order(edge_counts$from, edge_counts$to), , drop = FALSE]
-  rownames(edge_counts) <- NULL
+  # Co-occurrence matrix via sparse crossprod: S = C^T %*% C
+  S <- Matrix::crossprod(C_mat)
+  # Eliminate self-loops explicitly
+  Matrix::diag(S) <- 0
+
+  # Extract upper triangular edges (undirected)
+  S_tri <- Matrix::triu(S, k = 1)
+  S_sum <- Matrix::summary(S_tri)
+
+  if (nrow(S_sum) == 0) {
+    g <- igraph::graph_from_data_frame(
+      d = data.frame(from = character(0), to = character(0), weight = numeric(0)),
+      vertices = nodes_df,
+      directed = FALSE
+    )
+    igraph::V(g)$identifier <- igraph::V(g)$name
+    return(g)
+  }
+
+  edges_df <- data.frame(
+    from = node_identifiers[S_sum$i],
+    to = node_identifiers[S_sum$j],
+    weight = as.numeric(S_sum$x),
+    stringsAsFactors = FALSE
+  )
+  edges_df <- edges_df[order(edges_df$from, edges_df$to), , drop = FALSE]
+  rownames(edges_df) <- NULL
 
   g <- igraph::graph_from_data_frame(
-    d = edge_counts,
+    d = edges_df,
     vertices = nodes_df,
     directed = FALSE
   )

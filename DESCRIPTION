@@ -16,6 +16,8 @@ Description: Splits court delay into two parts: (1) what a case is, represented
     extract of Indian lower courts. Observational and non-causal; does not rank judges,
     evaluate judicial performance, or claim causal delay effects.
 License: MIT + file LICENSE
+URL: https://github.com/shraddhaajit/dockerscape
+BugReports: https://github.com/shraddhaajit/dockerscape/issues
 Encoding: UTF-8
 Depends: 
     R (>= 4.1.0)
@@ -24,9 +26,10 @@ Imports:
     Matrix,
     stats,
     survival
-Suggests:
+Suggests: 
     knitr,
     rmarkdown,
+    spelling,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
 VignetteBuilder: knitr

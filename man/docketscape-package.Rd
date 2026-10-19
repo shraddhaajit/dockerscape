@@ -8,6 +8,14 @@
 \description{
 Splits court delay into two parts: (1) what a case is, represented through the statutory Acts and Sections invoked by the case, and (2) where it sits, represented by time-varying court docket load. Builds a weighted similarity graph of cases from legal provisions, estimates censoring-aware expected resolution timelines using legally similar neighbours, calculates relative lateness, and models delay in relation to filing-time court docket load. Designed for case-level judicial records such as the Development Data Lab (DDL) extract of Indian lower courts. Observational and non-causal; does not rank judges, evaluate judicial performance, or claim causal delay effects.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/shraddhaajit/dockerscape}
+  \item Report bugs at \url{https://github.com/shraddhaajit/dockerscape/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Shraddha Ajit \email{shra19076@gmail.com}
 

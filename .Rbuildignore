@@ -6,3 +6,6 @@
 ^docketscape\.Rcheck$
 ^scratch$
 ^tests/testthat/_snaps$
+^dev$
+^cran-comments\.md$
+

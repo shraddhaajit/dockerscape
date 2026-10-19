@@ -151,6 +151,36 @@ km_focal <- neighbourhood_survival(case_graph, cleaned, case_id = 1)
 print(km_focal)
 ```
 
+The peer survival curve can be visualized directly using standard base R graphics without any extra graph or plotting packages:
+
+```{r plot-survival, fig.width = 6, fig.height = 4}
+surv_tab <- km_focal$survival_table
+
+plot(
+  surv_tab$time, surv_tab$surv,
+  type = "s",
+  lwd = 2,
+  col = "darkblue",
+  xlab = "Time (days)",
+  ylab = "Estimated Survival Probability S(t)",
+  main = paste("Neighbourhood Survival Curve for Case", km_focal$target_case_id),
+  ylim = c(0, 1)
+)
+abline(h = 0.5, lty = 2, col = "grey50")
+if (!is.na(km_focal$target_duration)) {
+  abline(v = km_focal$target_duration, col = "firebrick", lty = 3, lwd = 2)
+}
+grid()
+legend(
+  "topright",
+  legend = c("Peer Survival S(t)", "Median Threshold (50%)", "Target Case Duration"),
+  col = c("darkblue", "grey50", "firebrick"),
+  lty = c(1, 2, 3),
+  lwd = c(2, 1, 2),
+  bty = "n"
+)
+```
+
 ---
 
 ## 8. Relative Lateness (`relative_lateness`)

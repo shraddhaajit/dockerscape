@@ -68,8 +68,12 @@ fit_delay_model <- function(cases_clean,
     stop(sprintf("Required column(s) missing from `cases_clean`: %s", paste(missing_cols, collapse = ", ")), call. = FALSE)
   }
 
-  if (is.character(court) && length(court) == 1 && court %in% names(cases_clean)) {
-    court_vals <- as.character(cases_clean[[court]])
+  if (is.character(court) && length(court) == 1) {
+    if (court %in% names(cases_clean)) {
+      court_vals <- as.character(cases_clean[[court]])
+    } else {
+      stop(sprintf("Column '%s' not found in `cases_clean`.", court), call. = FALSE)
+    }
   } else if (length(court) == nrow(cases_clean)) {
     court_vals <- as.character(court)
   } else {
@@ -88,16 +92,13 @@ fit_delay_model <- function(cases_clean,
   if (inherits(case_graph, "igraph") && igraph::vcount(case_graph) > 0) {
     v_names <- igraph::V(case_graph)$name
     if (!is.null(v_names)) {
-      for (i in seq_len(n_total)) {
-        cid <- case_ids[i]
-        if (cid %in% v_names) {
-          inc_edges <- igraph::incident(case_graph, v = cid, mode = "all")
-          if (length(inc_edges) > 0) {
-            weights <- igraph::E(case_graph)$weight[inc_edges]
-            legal_scores[i] <- mean(weights, na.rm = TRUE)
-          }
-        }
-      }
+      w_attr <- if ("weight" %in% igraph::edge_attr_names(case_graph)) igraph::E(case_graph)$weight else NULL
+      deg <- igraph::degree(case_graph, mode = "all")
+      str_val <- if (!is.null(w_attr)) igraph::strength(case_graph, mode = "all", weights = w_attr) else as.numeric(deg)
+      v_scores <- ifelse(deg > 0, str_val / deg, NA_real_)
+      v_map <- match(case_ids, v_names)
+      has_match <- !is.na(v_map)
+      legal_scores[has_match] <- v_scores[v_map[has_match]]
     }
   }
 
@@ -108,16 +109,11 @@ fit_delay_model <- function(cases_clean,
   cl_load <- court_load_df$load
 
   load_at_filing <- rep(NA_real_, n_total)
-  for (i in seq_len(n_total)) {
-    c_val <- court_vals[i]
-    m_val <- filing_months[i]
-    if (!is.na(c_val) && !is.na(m_val)) {
-      match_idx <- which(cl_court == c_val & cl_date == m_val)
-      if (length(match_idx) > 0) {
-        load_at_filing[i] <- cl_load[match_idx[1]]
-      }
-    }
-  }
+  key_cl <- paste0(cl_court, "||", cl_date)
+  key_cases <- paste0(court_vals, "||", filing_months)
+  match_idx <- match(key_cases, key_cl)
+  valid_m <- !is.na(court_vals) & !is.na(filing_months) & !is.na(match_idx)
+  load_at_filing[valid_m] <- cl_load[match_idx[valid_m]]
 
   # 3. Track Row Inclusion / Exclusions
   is_valid_case <- rep(TRUE, n_total)
@@ -188,6 +184,27 @@ fit_delay_model <- function(cases_clean,
 
   n_obs <- nrow(model_data)
   n_events <- sum(model_data$event == 1)
+
+  if (n_obs < 3) {
+    res <- list(
+      model = NULL,
+      model_data = model_data,
+      coefficients = data.frame(),
+      hazard_ratios = data.frame(),
+      n_obs = n_obs,
+      n_events = n_events,
+      n_excluded = n_excluded,
+      exclusions = exclusions_vec,
+      legal_score_def = legal_def_str,
+      load_def = load_def_str,
+      formula = form,
+      ph_test = NULL,
+      fit_success = FALSE,
+      fit_message = sprintf("Insufficient observations (n = %d < 3) to fit multivariable Cox regression.", n_obs)
+    )
+    class(res) <- c("delay_model", "list")
+    return(res)
+  }
 
   if (n_events == 0) {
     res <- list(

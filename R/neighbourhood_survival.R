@@ -135,11 +135,20 @@ neighbourhood_survival <- function(case_graph,
     is_valid = if ("is_valid" %in% names(cases_clean)) cases_clean$is_valid else TRUE,
     stringsAsFactors = FALSE
   )
+  # Deduplicate clean_cases_map so duplicate IDs in cases_clean do not multiply neighbour rows
+  clean_cases_map <- clean_cases_map[!duplicated(clean_cases_map$case_id), , drop = FALSE]
 
   # Target exclusion explicitly enforced (filter out any self-loop if present)
-  valid_neigh_mask <- (neigh_ids != target_id)
+  valid_neigh_mask <- (neigh_ids != target_id) & !is.na(edge_weights) & (edge_weights > 0)
   neigh_ids <- neigh_ids[valid_neigh_mask]
   edge_weights <- edge_weights[valid_neigh_mask]
+
+  # Deduplicate multiple edges to the same neighbour by taking mean weight
+  if (length(neigh_ids) > 0 && any(duplicated(neigh_ids))) {
+    neigh_agg <- stats::aggregate(list(weight = edge_weights), by = list(case_id = neigh_ids), FUN = mean)
+    neigh_ids <- neigh_agg$case_id
+    edge_weights <- neigh_agg$weight
+  }
 
   if (length(neigh_ids) == 0) {
     res <- list(
@@ -156,14 +165,18 @@ neighbourhood_survival <- function(case_graph,
     return(res)
   }
 
-  # Join neighbour IDs with cases_clean
-  neigh_df <- data.frame(
-    case_id = neigh_ids,
-    weight = edge_weights,
+  # Join neighbour IDs with cases_clean via fast direct matching
+  m_idx <- match(neigh_ids, clean_cases_map$case_id)
+  has_match <- !is.na(m_idx)
+
+  merged_neigh <- data.frame(
+    case_id = neigh_ids[has_match],
+    weight = edge_weights[has_match],
+    duration = clean_cases_map$duration[m_idx[has_match]],
+    event = clean_cases_map$event[m_idx[has_match]],
+    is_valid = clean_cases_map$is_valid[m_idx[has_match]],
     stringsAsFactors = FALSE
   )
-
-  merged_neigh <- merge(neigh_df, clean_cases_map, by = "case_id", all.x = TRUE)
 
   # Filter out missing or invalid neighbour records
   merged_neigh <- merged_neigh[

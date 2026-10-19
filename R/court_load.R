@@ -53,8 +53,12 @@ court_load <- function(cases_clean,
   }
 
   # Extract court column
-  if (is.character(court) && length(court) == 1 && court %in% names(cases_clean)) {
-    court_vals <- as.character(cases_clean[[court]])
+  if (is.character(court) && length(court) == 1) {
+    if (court %in% names(cases_clean)) {
+      court_vals <- as.character(cases_clean[[court]])
+    } else {
+      stop(sprintf("Column '%s' not found in `cases_clean`.", court), call. = FALSE)
+    }
   } else if (length(court) == nrow(cases_clean)) {
     court_vals <- as.character(court)
   } else {
@@ -70,7 +74,7 @@ court_load <- function(cases_clean,
   # Filter valid rows
   valid_mask <- !is.na(cases_clean$filing_date) &
                 !is.na(cases_clean$event) &
-                !is.na(cases_clean$duration) &
+                !is.na(cases_clean$duration) & cases_clean$duration >= 0 &
                 !is.na(court_vals) & nchar(trimws(court_vals)) > 0
 
   if ("is_valid" %in% names(cases_clean)) {
@@ -125,25 +129,13 @@ court_load <- function(cases_clean,
 
   for (c_id in unique_courts) {
     sub_df <- clean_df[clean_df$court == c_id, , drop = FALSE]
-    n_sub <- nrow(sub_df)
+    f_vec <- sort(sub_df$filing_date)
+    disp_cases <- sub_df[sub_df$event == 1 & !is.na(sub_df$decision_date), , drop = FALSE]
+    d_vec <- if (nrow(disp_cases) > 0) sort(disp_cases$decision_date) else as.Date(character(0))
 
-    f_vec <- sub_df$filing_date
-    d_vec <- sub_df$decision_date
-    e_vec <- sub_df$event
-
-    f_mask <- outer(date_seq, f_vec, ">=")
-
-    d_mask <- matrix(FALSE, nrow = n_dates, ncol = n_sub)
-    for (j in seq_len(n_sub)) {
-      if (e_vec[j] == 0 || is.na(d_vec[j])) {
-        d_mask[, j] <- TRUE
-      } else {
-        d_mask[, j] <- (d_vec[j] > date_seq)
-      }
-    }
-
-    open_mat <- f_mask & d_mask
-    load_counts <- rowSums(open_mat)
+    n_f <- findInterval(date_seq, f_vec)
+    n_d <- if (length(d_vec) > 0) findInterval(date_seq, d_vec) else 0L
+    load_counts <- n_f - n_d
 
     out_list[[idx]] <- data.frame(
       court = rep(c_id, n_dates),
