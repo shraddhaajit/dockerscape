@@ -1,0 +1,11 @@
+bibentry(
+  bibtype = "Manual",
+  title = "docketscape: Legal Network and Congestion-Aware Delay Modeling for Court Dockets",
+  author = c(
+    person("Shraddha", "Ajit", email = "shra19076@gmail.com", role = c("aut", "cre")),
+    person("DK", "Janani", email = "janani007dk@gmail.com", role = "aut")
+  ),
+  year = "2026",
+  note = "R package version 0.1.0",
+  url = "https://github.com/shraddhaajit/docketscape"
+)

@@ -6,13 +6,21 @@
 \alias{docketscape-package}
 \title{docketscape: Legal Network and Congestion-Aware Delay Modeling for Court Dockets}
 \description{
-Splits court delay into two parts: (1) what a case is, represented through the statutory Acts and Sections invoked by the case, and (2) where it sits, represented by time-varying court docket load. Builds a weighted similarity graph of cases from legal provisions, estimates censoring-aware expected resolution timelines using legally similar neighbours, calculates relative lateness, and models delay in relation to filing-time court docket load. Designed for case-level judicial records such as the Development Data Lab (DDL) extract of Indian lower courts. Observational and non-causal; does not rank judges, evaluate judicial performance, or claim causal delay effects.
+Splits court delay into substantive legal complexity (represented by statutory
+networks of Acts and Sections) and institutional congestion (represented by
+monthly court docket load).
+}
+\references{
+Development Data Lab (DDL) Judiciary Dataset: \url{https://www.devdatalab.org/judicial-data}
+
+Asher, S., Novosad, P., et al. (2021). "In-Group Bias in the Indian Judiciary: Evidence from 5.5 Million Criminal Cases." Development Data Lab.
 }
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/shraddhaajit/dockerscape}
-  \item Report bugs at \url{https://github.com/shraddhaajit/dockerscape/issues}
+  \item \url{https://github.com/shraddhaajit/docketscape}
+  \item \url{https://www.devdatalab.org/judicial-data}
+  \item Report bugs at \url{https://github.com/shraddhaajit/docketscape/issues}
 }
 
 }

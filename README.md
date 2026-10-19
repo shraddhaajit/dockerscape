@@ -1,7 +1,7 @@
 
 # docketscape: Legal Network and Congestion-Aware Delay Modeling for Court Dockets
 
-[![R-CMD-check](https://img.shields.io/badge/R--CMD--check-passing-brightgreen)](https://github.com/shraddhaajit/dockerscape/actions)
+[![R-CMD-check](https://img.shields.io/badge/R--CMD--check-passing-brightgreen)](https://github.com/shraddhaajit/docketscape/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 `docketscape` is an R package for case-level judicial records (such as the Development Data Lab extract of Indian lower-court records). It decomposes court delay into two distinct dimensions:
